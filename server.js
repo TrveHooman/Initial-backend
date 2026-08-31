@@ -1,16 +1,14 @@
 const express = require('express');
-const setupDatabase = require('./db');
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 const bcrypt = require('bcrypt');
 const dotenv = require('dotenv');
-const jwt = require('jsonwebtoken');
-
 dotenv.config();
+const jwt = require('jsonwebtoken');
 
 const app = express();
 const PORT = 3000;
 app.use(express.json());
-
-let db;
 
 function authenticateToken(req, res, next){
     const authHeader = req.headers['authorization'];
@@ -33,7 +31,6 @@ app.get('/', (req,res) => {
     res.send("Welcome to the backend server!");
 });
 
-
 app.get(
     '/api/status', 
     authenticateToken,
@@ -51,7 +48,11 @@ app.get(
 app.post('/api/login', async(req,res) => {
     const incUsername = req.body.username;
     const incPassword = req.body.password;
-    const user = await db.get(`SELECT * FROM users WHERE username = ?`, [incUsername]);
+    const user = await prisma.users.findUnique({
+        where: {
+            username: incUsername
+        }
+    });
     if(!user){
         return res.status(401).json({ "error": "Invalid credentials" });
     }
@@ -73,12 +74,42 @@ app.post('/api/login', async(req,res) => {
      });
 });
 
+app.post('/api/register', async(req,res) => {
+    const incUsername = req.body.username;
+    const incPassword = await bcrypt.hash(req.body.password, 10);
+    const existingUser = await prisma.users.findUnique({
+        where: {
+            username: incUsername
+        }
+    });
+    if(existingUser) {
+        return res.status(409).json({ error: "Invalid username" });
+    } else {
+        const user = await prisma.users.create({
+            data: {
+                username: incUsername,
+                password: incPassword
+            }
+        });
+        const payload = {
+            sub: user.id, 
+            username: user.username 
+        };
+        const secret = process.env.JWT_SECRET;
+        const token = jwt.sign(payload, secret, {
+            expiresIn: '15m'
+        });
+        return res.json({ 
+            "message": "Registeration successful",
+            "accessToken": token
+         });
+    }
+});
 
 
 
 async function startServer() {
     try {
-        db = await setupDatabase();
 
         app.listen(PORT, '0.0.0.0', () => {
             console.log(`Server is running and listening on http://localhost:${PORT}`);
