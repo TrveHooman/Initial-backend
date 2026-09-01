@@ -1,5 +1,5 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
+const { PrismaClient, Prisma } = require('@prisma/client');
 const prisma = new PrismaClient();
 const bcrypt = require('bcrypt');
 const dotenv = require('dotenv');
@@ -48,7 +48,7 @@ app.get(
 app.post('/api/login', async(req,res) => {
     const incUsername = req.body.username;
     const incPassword = req.body.password;
-    const user = await prisma.users.findUnique({
+    const user = await prisma.User.findUnique({
         where: {
             username: incUsername
         }
@@ -74,21 +74,28 @@ app.post('/api/login', async(req,res) => {
      });
 });
 
+
+
 app.post('/api/register', async(req,res) => {
+
     const incUsername = req.body.username;
-    const incPassword = await bcrypt.hash(req.body.password, 10);
-    const existingUser = await prisma.users.findUnique({
-        where: {
-            username: incUsername
-        }
-    });
-    if(existingUser) {
-        return res.status(409).json({ error: "Invalid username" });
-    } else {
-        const user = await prisma.users.create({
+    const incPassword = req.body.password;
+    if(
+        !incUsername ||
+        !incPassword ||
+        typeof(incUsername) !== 'string' ||
+        typeof(incPassword) !== 'string' ||
+        incUsername.length < 1 ||
+        incPassword.length < 1
+    ){
+        return res.status(400).json({ error: "Invalid credentials" });
+    };
+    try {
+        const passwordHash = await bcrypt.hash(incPassword, 10);
+        const user = await prisma.User.create({
             data: {
                 username: incUsername,
-                password: incPassword
+                password: passwordHash
             }
         });
         const payload = {
@@ -102,15 +109,24 @@ app.post('/api/register', async(req,res) => {
         return res.json({ 
             "message": "Registeration successful",
             "accessToken": token
-         });
+            });
+    } catch (err) {
+        if (err instanceof Prisma.PrismaClientKnownRequestError) {
+            if (err.code === "P2002") {
+                return res.status(409).json({ error: "There is a unique constraint violation"});
+            }
+        }
+        console.log()
+        console.error(" Error: ", err);
+        return res.status(500).json({ error: "Something went wrong" });
     }
+    
 });
 
 
 
 async function startServer() {
     try {
-
         app.listen(PORT, '0.0.0.0', () => {
             console.log(`Server is running and listening on http://localhost:${PORT}`);
         });
